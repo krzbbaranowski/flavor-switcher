@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-export { BrandSwitcher } from './brand-switcher-main';
-export { default } from './brand-switcher-main';
+export { FlavorSwitcher } from './flavor-switcher';
+export { default } from './flavor-switcher';
+export * from './types';
+export * from './constants';
 
-// If this module is executed directly, run the CLI
 if (require.main === module) {
-  // Import and run the CLI
-  require('./brand-switcher-main');
+  const { program } = require('./cli');
+  program.parse(process.argv);
 }
