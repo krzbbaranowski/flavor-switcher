@@ -1,16 +1,24 @@
 {
-  "name": "brand-switcher",
+  "name": "flavor-switcher",
   "version": "1.0.0",
-  "description": "Open-source tool for managing white-label application resources",
-  "main": "index.js",
+  "description": "Open-source CLI tool for managing white-label application resources",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
-    "brand-switcher": "./index.js"
+    "flavor-switcher": "./dist/index.js"
   },
   "scripts": {
-    "start": "node index.js",
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
     "test": "jest",
-    "lint": "eslint .",
-    "validate": "node index.js validate"
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "validate": "npm run build && node dist/index.js validate",
+    "prepublishOnly": "npm run build && npm test",
+    "clean": "rm -rf dist coverage"
   },
   "keywords": [
     "white-label",
@@ -18,7 +26,8 @@
     "multi-tenant",
     "resource-management",
     "cli",
-    "configuration"
+    "configuration",
+    "typescript"
   ],
   "author": "",
   "license": "MIT",
@@ -31,18 +40,33 @@
     "joi": "^17.7.0"
   },
   "devDependencies": {
+    "@types/fs-extra": "^11.0.1",
+    "@types/glob": "^8.0.0",
+    "@types/inquirer": "^8.2.5",
+    "@types/jest": "^29.2.5",
+    "@types/node": "^18.11.18",
+    "@typescript-eslint/eslint-plugin": "^5.48.0",
+    "@typescript-eslint/parser": "^5.48.0",
     "eslint": "^8.30.0",
-    "jest": "^29.3.1"
+    "jest": "^29.3.1",
+    "ts-jest": "^29.0.3",
+    "ts-node": "^10.9.1",
+    "typescript": "^4.9.4"
   },
   "engines": {
     "node": ">=14.0.0"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/brand-switcher.git"
+    "url": "https://github.com/krzbbaranowski/flavor-switcher.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/brand-switcher/issues"
+    "url": "https://github.com/krzbbaranowski/flavor-switcher/issues"
   },
-  "homepage": "https://github.com/yourusername/brand-switcher#readme"
+  "homepage": "https://github.com/krzbbaranowski/flavor-switcher#readme"
 }

@@ -1,29 +1,69 @@
 #!/usr/bin/env node
 
-const fs = require('fs-extra');
-const path = require('path');
-const crypto = require('crypto');
-const chalk = require('chalk');
-const { program } = require('commander');
-const Joi = require('joi');
-const inquirer = require('inquirer');
-const glob = require('glob');
+import * as fs from 'fs-extra';
+import * as path from 'path';
+import * as crypto from 'crypto';
+import chalk from 'chalk';
+import { Command } from 'commander';
+import Joi from 'joi';
+import inquirer from 'inquirer';
+import * as glob from 'glob';
+
+// Types and Interfaces
+interface BrandConfig {
+  displayName: string;
+  description?: string;
+  active: boolean;
+}
+
+interface Mapping {
+  source: string;
+  target: string;
+  type: 'file' | 'directory';
+  required: boolean;
+  description?: string;
+}
+
+interface RequiredStructure {
+  files: string[];
+  directories: string[];
+}
+
+interface Configuration {
+  version: string;
+  projectRoot: string;
+  brands: Record<string, BrandConfig>;
+  mappings: Mapping[];
+  requiredStructure: RequiredStructure;
+}
+
+interface FileInfo {
+  hash?: string;
+  exists: boolean;
+  type: 'file' | 'directory';
+}
+
+interface State {
+  currentBrand: string | null;
+  originalFiles: Record<string, FileInfo>;
+}
 
 // Constants
 const CONFIG_FILE = 'brand-config.json';
 const STATE_FILE = '.brand-state.json';
 const BRANDS_DIR = 'brands';
+const BACKUP_DIR = '.brand-backup';
 const GITIGNORE_MARKER = '# Brand Switcher - DO NOT EDIT BELOW THIS LINE';
 
 // Configuration schema
-const configSchema = Joi.object({
+const configSchema = Joi.object<Configuration>({
   version: Joi.string().required(),
   projectRoot: Joi.string().default('./'),
   brands: Joi.object().pattern(
     Joi.string(),
     Joi.object({
       displayName: Joi.string().required(),
-      description: Joi.string(),
+      description: Joi.string().optional(),
       active: Joi.boolean().default(true)
     })
   ).required(),
@@ -33,33 +73,34 @@ const configSchema = Joi.object({
       target: Joi.string().required(),
       type: Joi.string().valid('file', 'directory').default('file'),
       required: Joi.boolean().default(true),
-      description: Joi.string()
+      description: Joi.string().optional()
     })
   ).required(),
   requiredStructure: Joi.object({
     files: Joi.array().items(Joi.string()).default([]),
     directories: Joi.array().items(Joi.string()).default([])
-  }).default({})
+  }).default({ files: [], directories: [] })
 }).required();
 
-class BrandSwitcher {
-  constructor() {
-    this.config = null;
-    this.state = null;
-    this.currentBrand = null;
-  }
+export class BrandSwitcher {
+  private config: Configuration | null = null;
+  private state: State | null = null;
+  private currentBrand: string | null = null;
 
-  async init() {
+  constructor() {}
+
+  async init(): Promise<void> {
     try {
       await this.loadConfig();
       await this.loadState();
     } catch (error) {
-      console.error(chalk.red('Initialization failed:'), error.message);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(chalk.red('Initialization failed:'), errorMessage);
       process.exit(1);
     }
   }
 
-  async loadConfig() {
+  async loadConfig(): Promise<void> {
     const configPath = path.resolve(CONFIG_FILE);
     
     if (!await fs.pathExists(configPath)) {
@@ -74,21 +115,22 @@ class BrandSwitcher {
         throw new Error(`Configuration validation failed: ${error.message}`);
       }
       
-      this.config = value;
+      this.config = value as Configuration;
       console.log(chalk.green('✓'), 'Configuration loaded successfully');
     } catch (error) {
-      throw new Error(`Failed to load configuration: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Failed to load configuration: ${errorMessage}`);
     }
   }
 
-  async loadState() {
+  async loadState(): Promise<void> {
     const statePath = path.resolve(STATE_FILE);
     
     if (await fs.pathExists(statePath)) {
       try {
-        this.state = await fs.readJson(statePath);
+        this.state = await fs.readJson(statePath) as State;
         this.currentBrand = this.state.currentBrand;
-        console.log(chalk.green('✓'), `Current brand: ${chalk.cyan(this.currentBrand || 'none')}`);
+        console.log(chalk.green('✓'), `Current brand: ${this.currentBrand || 'none'}`);
       } catch (error) {
         console.warn(chalk.yellow('Warning:'), 'Could not load state file, creating new one');
         this.state = { currentBrand: null, originalFiles: {} };
@@ -98,14 +140,17 @@ class BrandSwitcher {
     }
   }
 
-  async saveState() {
+  async saveState(): Promise<void> {
+    if (!this.state) return;
     const statePath = path.resolve(STATE_FILE);
     await fs.writeJson(statePath, this.state, { spaces: 2 });
   }
 
-  async validateBrandStructure(brandName) {
+  async validateBrandStructure(brandName: string): Promise<boolean> {
+    if (!this.config) throw new Error('Configuration not loaded');
+    
     const brandPath = path.join(BRANDS_DIR, brandName);
-    const errors = [];
+    const errors: string[] = [];
     
     if (!await fs.pathExists(brandPath)) {
       throw new Error(`Brand directory '${brandPath}' does not exist`);
@@ -145,7 +190,7 @@ class BrandSwitcher {
     return true;
   }
 
-  getFileHash(filePath) {
+  getFileHash(filePath: string): string | null {
     if (!fs.existsSync(filePath)) {
       return null;
     }
@@ -155,8 +200,10 @@ class BrandSwitcher {
     return hashSum.digest('hex');
   }
 
-  async backupOriginalFiles(brandName) {
-    const backups = {};
+  async backupOriginalFiles(brandName: string): Promise<void> {
+    if (!this.config || !this.state) throw new Error('Not initialized');
+    
+    const backups: Record<string, FileInfo> = {};
     
     for (const mapping of this.config.mappings) {
       const targetPath = path.join(this.config.projectRoot, mapping.target);
@@ -164,13 +211,13 @@ class BrandSwitcher {
       if (await fs.pathExists(targetPath)) {
         const hash = this.getFileHash(targetPath);
         backups[mapping.target] = {
-          hash: hash,
+          hash: hash || undefined,
           exists: true,
           type: mapping.type
         };
         
         // Create backup
-        const backupPath = path.join('.brand-backup', mapping.target);
+        const backupPath = path.join(BACKUP_DIR, mapping.target);
         await fs.ensureDir(path.dirname(backupPath));
         await fs.copy(targetPath, backupPath);
       } else {
@@ -186,7 +233,9 @@ class BrandSwitcher {
     console.log(chalk.green('✓'), 'Original files backed up');
   }
 
-  async restoreOriginalFiles() {
+  async restoreOriginalFiles(): Promise<void> {
+    if (!this.state || !this.config) throw new Error('Not initialized');
+    
     if (!this.state.originalFiles || Object.keys(this.state.originalFiles).length === 0) {
       console.log(chalk.yellow('No original files to restore'));
       return;
@@ -194,7 +243,7 @@ class BrandSwitcher {
 
     for (const [target, info] of Object.entries(this.state.originalFiles)) {
       const targetPath = path.join(this.config.projectRoot, target);
-      const backupPath = path.join('.brand-backup', target);
+      const backupPath = path.join(BACKUP_DIR, target);
       
       if (info.exists && await fs.pathExists(backupPath)) {
         await fs.copy(backupPath, targetPath, { overwrite: true });
@@ -213,7 +262,9 @@ class BrandSwitcher {
     console.log(chalk.green('✓'), 'Original files restored');
   }
 
-  async applyBrand(brandName) {
+  async applyBrand(brandName: string): Promise<void> {
+    if (!this.config) throw new Error('Configuration not loaded');
+    
     const brandPath = path.join(BRANDS_DIR, brandName);
     
     for (const mapping of this.config.mappings) {
@@ -232,7 +283,9 @@ class BrandSwitcher {
     console.log(chalk.green('✓'), `Brand '${brandName}' applied successfully`);
   }
 
-  async switchBrand(brandName) {
+  async switchBrand(brandName: string): Promise<void> {
+    if (!this.config || !this.state) throw new Error('Not initialized');
+    
     try {
       // Validate brand exists in config
       if (!this.config.brands[brandName]) {
@@ -269,14 +322,17 @@ class BrandSwitcher {
       // Update gitignore
       await this.updateGitignore();
 
-      console.log(chalk.green.bold('✓'), chalk.bold(`Successfully switched to brand: ${brandName}`));
+      console.log(chalk.green('✓'), chalk.bold(`Successfully switched to brand: ${brandName}`));
     } catch (error) {
-      console.error(chalk.red('Error:'), error.message);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(chalk.red('Error:'), errorMessage);
       process.exit(1);
     }
   }
 
-  async resetBrand() {
+  async resetBrand(): Promise<void> {
+    if (!this.state) throw new Error('Not initialized');
+    
     try {
       if (!this.currentBrand) {
         console.log(chalk.yellow('No brand is currently active'));
@@ -293,21 +349,24 @@ class BrandSwitcher {
       await this.saveState();
 
       // Clean up backup directory
-      if (await fs.pathExists('.brand-backup')) {
-        await fs.remove('.brand-backup');
+      if (await fs.pathExists(BACKUP_DIR)) {
+        await fs.remove(BACKUP_DIR);
       }
 
       // Update gitignore
       await this.updateGitignore();
 
-      console.log(chalk.green.bold('✓'), 'Successfully reset to original state');
+      console.log(chalk.green('✓'), 'Successfully reset to original state');
     } catch (error) {
-      console.error(chalk.red('Error:'), error.message);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(chalk.red('Error:'), errorMessage);
       process.exit(1);
     }
   }
 
-  async updateGitignore() {
+  async updateGitignore(): Promise<void> {
+    if (!this.config) throw new Error('Configuration not loaded');
+    
     const gitignorePath = path.resolve('.gitignore');
     let content = '';
     
@@ -322,18 +381,17 @@ class BrandSwitcher {
     }
 
     // Add brand switcher patterns
-    const patterns = [
+    const patterns: string[] = [
       '',
       GITIGNORE_MARKER,
-      '.brand-state.json',
-      '.brand-backup/'
+      STATE_FILE,
+      `${BACKUP_DIR}/`
     ];
 
     // Add current brand files to gitignore
     if (this.currentBrand) {
       for (const mapping of this.config.mappings) {
-        const targetPath = mapping.target;
-        patterns.push(targetPath);
+        patterns.push(mapping.target);
       }
     }
 
@@ -343,7 +401,9 @@ class BrandSwitcher {
     console.log(chalk.green('✓'), '.gitignore updated');
   }
 
-  async checkStatus() {
+  async checkStatus(): Promise<void> {
+    if (!this.config || !this.state) throw new Error('Not initialized');
+    
     console.log(chalk.bold('\n📊 Brand Switcher Status\n'));
     
     console.log(chalk.cyan('Current brand:'), this.currentBrand || 'none');
@@ -361,7 +421,7 @@ class BrandSwitcher {
       }
     }
 
-    if (this.currentBrand) {
+    if (this.currentBrand && this.state.originalFiles) {
       console.log(chalk.bold('\n🔄 Modified Files:\n'));
       for (const [target, info] of Object.entries(this.state.originalFiles)) {
         const currentPath = path.join(this.config.projectRoot, target);
@@ -374,7 +434,9 @@ class BrandSwitcher {
     console.log('');
   }
 
-  async interactiveSwitch() {
+  async interactiveSwitch(): Promise<void> {
+    if (!this.config) throw new Error('Configuration not loaded');
+    
     const brands = Object.entries(this.config.brands)
       .filter(([_, config]) => config.active)
       .map(([name, config]) => ({
@@ -387,7 +449,7 @@ class BrandSwitcher {
       return;
     }
 
-    const { selectedBrand } = await inquirer.prompt([
+    const { selectedBrand } = await inquirer.prompt<{ selectedBrand: string }>([
       {
         type: 'list',
         name: 'selectedBrand',
@@ -401,7 +463,7 @@ class BrandSwitcher {
       return;
     }
 
-    const { confirm } = await inquirer.prompt([
+    const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
       {
         type: 'confirm',
         name: 'confirm',
@@ -415,7 +477,9 @@ class BrandSwitcher {
     }
   }
 
-  async validate() {
+  async validate(): Promise<void> {
+    if (!this.config || !this.state) throw new Error('Not initialized');
+    
     console.log(chalk.bold('\n🔍 Validating Configuration\n'));
     
     let hasErrors = false;
@@ -437,13 +501,14 @@ class BrandSwitcher {
       try {
         await this.validateBrandStructure(brandName);
       } catch (error) {
-        console.error(chalk.red('✗'), error.message);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error(chalk.red('✗'), errorMessage);
         hasErrors = true;
       }
     }
 
     // Check for uncommitted brand files
-    if (this.currentBrand) {
+    if (this.currentBrand && this.state.originalFiles) {
       console.log(chalk.bold('\n🔍 Checking for uncommitted brand files\n'));
       
       for (const mapping of this.config.mappings) {
@@ -461,81 +526,14 @@ class BrandSwitcher {
     }
 
     if (!hasErrors) {
-      console.log(chalk.green.bold('\n✓ All validations passed'));
+      console.log(chalk.green('\n✓ All validations passed'));
     } else {
-      console.log(chalk.red.bold('\n✗ Validation failed'));
+      console.log(chalk.red('\n✗ Validation failed'));
       process.exit(1);
     }
   }
-}
 
-// CLI Setup
-program
-  .name('brand-switcher')
-  .description('CLI tool for managing white-label application resources')
-  .version('1.0.0');
-
-program
-  .command('switch <brand>')
-  .description('Switch to a specific brand')
-  .action(async (brand) => {
-    const switcher = new BrandSwitcher();
-    await switcher.init();
-    await switcher.switchBrand(brand);
-  });
-
-program
-  .command('switch')
-  .description('Interactively select and switch brand')
-  .action(async () => {
-    const switcher = new BrandSwitcher();
-    await switcher.init();
-    await switcher.interactiveSwitch();
-  });
-
-program
-  .command('reset')
-  .description('Reset to original state (remove all brand customizations)')
-  .action(async () => {
-    const switcher = new BrandSwitcher();
-    await switcher.init();
-    
-    const { confirm } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'confirm',
-        message: 'Are you sure you want to reset to original state?',
-        default: false
-      }
-    ]);
-    
-    if (confirm) {
-      await switcher.resetBrand();
-    }
-  });
-
-program
-  .command('status')
-  .description('Show current brand status')
-  .action(async () => {
-    const switcher = new BrandSwitcher();
-    await switcher.init();
-    await switcher.checkStatus();
-  });
-
-program
-  .command('validate')
-  .description('Validate configuration and brand structures')
-  .action(async () => {
-    const switcher = new BrandSwitcher();
-    await switcher.init();
-    await switcher.validate();
-  });
-
-program
-  .command('init')
-  .description('Initialize brand switcher in current directory')
-  .action(async () => {
+  static async initProject(): Promise<void> {
     console.log(chalk.bold('🚀 Initializing Brand Switcher\n'));
     
     // Check if already initialized
@@ -545,7 +543,7 @@ program
     }
 
     // Create default configuration
-    const defaultConfig = {
+    const defaultConfig: Configuration = {
       version: "1.0.0",
       projectRoot: "./",
       brands: {
@@ -624,16 +622,91 @@ program
     }
     
     if (!gitignoreContent.includes(GITIGNORE_MARKER)) {
-      gitignoreContent += `\n${GITIGNORE_MARKER}\n.brand-state.json\n.brand-backup/\n`;
+      gitignoreContent += `\n${GITIGNORE_MARKER}\n${STATE_FILE}\n${BACKUP_DIR}/\n`;
       await fs.writeFile(gitignorePath, gitignoreContent);
       console.log(chalk.green('✓'), 'Updated .gitignore');
     }
     
-    console.log(chalk.green.bold('\n✓ Brand Switcher initialized successfully!'));
+    console.log(chalk.green('\n✓ Brand Switcher initialized successfully!'));
     console.log(chalk.gray('\nNext steps:'));
     console.log(chalk.gray('1. Edit brand-config.json to match your project structure'));
     console.log(chalk.gray('2. Add your brand assets to the brands/ directory'));
     console.log(chalk.gray('3. Run "brand-switcher switch <brand-name>" to apply a brand'));
+  }
+}
+
+// CLI Setup
+const program = new Command();
+
+program
+  .name('brand-switcher')
+  .description('CLI tool for managing white-label application resources')
+  .version('1.0.0');
+
+program
+  .command('switch [brand]')
+  .description('Switch to a specific brand or select interactively')
+  .action(async (brand?: string) => {
+    const switcher = new BrandSwitcher();
+    await switcher.init();
+    
+    if (brand) {
+      await switcher.switchBrand(brand);
+    } else {
+      await switcher.interactiveSwitch();
+    }
   });
 
-program.parse(process.argv);
+program
+  .command('reset')
+  .description('Reset to original state (remove all brand customizations)')
+  .action(async () => {
+    const switcher = new BrandSwitcher();
+    await switcher.init();
+    
+    const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
+      {
+        type: 'confirm',
+        name: 'confirm',
+        message: 'Are you sure you want to reset to original state?',
+        default: false
+      }
+    ]);
+    
+    if (confirm) {
+      await switcher.resetBrand();
+    }
+  });
+
+program
+  .command('status')
+  .description('Show current brand status')
+  .action(async () => {
+    const switcher = new BrandSwitcher();
+    await switcher.init();
+    await switcher.checkStatus();
+  });
+
+program
+  .command('validate')
+  .description('Validate configuration and brand structures')
+  .action(async () => {
+    const switcher = new BrandSwitcher();
+    await switcher.init();
+    await switcher.validate();
+  });
+
+program
+  .command('init')
+  .description('Initialize brand switcher in current directory')
+  .action(async () => {
+    await BrandSwitcher.initProject();
+  });
+
+// Only run CLI if this is the main module
+if (require.main === module) {
+  program.parse(process.argv);
+}
+
+// Export for testing
+export default BrandSwitcher;
