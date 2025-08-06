@@ -1,0 +1,48 @@
+{
+  "name": "brand-switcher",
+  "version": "1.0.0",
+  "description": "Open-source tool for managing white-label application resources",
+  "main": "index.js",
+  "bin": {
+    "brand-switcher": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "jest",
+    "lint": "eslint .",
+    "validate": "node index.js validate"
+  },
+  "keywords": [
+    "white-label",
+    "brand",
+    "multi-tenant",
+    "resource-management",
+    "cli",
+    "configuration"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "commander": "^9.4.1",
+    "fs-extra": "^11.1.0",
+    "glob": "^8.0.3",
+    "inquirer": "^8.2.5",
+    "joi": "^17.7.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.30.0",
+    "jest": "^29.3.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/brand-switcher.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/brand-switcher/issues"
+  },
+  "homepage": "https://github.com/yourusername/brand-switcher#readme"
+}

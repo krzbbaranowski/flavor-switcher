@@ -1,0 +1,91 @@
+{
+  "version": "1.0.0",
+  "projectRoot": "./",
+  "brands": {
+    "brand-a": {
+      "displayName": "Brand A",
+      "description": "Primary brand with blue theme",
+      "active": true
+    },
+    "brand-b": {
+      "displayName": "Brand B", 
+      "description": "Secondary brand with green theme",
+      "active": true
+    },
+    "brand-c": {
+      "displayName": "Brand C (Legacy)",
+      "description": "Legacy brand - deprecated",
+      "active": false
+    }
+  },
+  "mappings": [
+    {
+      "source": "assets/logo.png",
+      "target": "public/logo.png",
+      "type": "file",
+      "required": true,
+      "description": "Main application logo"
+    },
+    {
+      "source": "assets/favicon.ico",
+      "target": "public/favicon.ico",
+      "type": "file",
+      "required": true,
+      "description": "Browser favicon"
+    },
+    {
+      "source": "config/app.config.json",
+      "target": "src/config/app.config.json",
+      "type": "file",
+      "required": true,
+      "description": "Application configuration (API endpoints, feature flags, etc.)"
+    },
+    {
+      "source": "config/theme.json",
+      "target": "src/config/theme.json",
+      "type": "file",
+      "required": true,
+      "description": "Theme configuration (colors, fonts, spacing)"
+    },
+    {
+      "source": "styles/",
+      "target": "src/styles/brand/",
+      "type": "directory",
+      "required": false,
+      "description": "Brand-specific stylesheets"
+    },
+    {
+      "source": "assets/images/",
+      "target": "public/images/brand/",
+      "type": "directory",
+      "required": false,
+      "description": "Brand-specific images and graphics"
+    },
+    {
+      "source": "locales/",
+      "target": "src/locales/brand/",
+      "type": "directory",
+      "required": false,
+      "description": "Brand-specific translations and text content"
+    },
+    {
+      "source": "fonts/",
+      "target": "public/fonts/",
+      "type": "directory",
+      "required": false,
+      "description": "Brand-specific fonts"
+    }
+  ],
+  "requiredStructure": {
+    "files": [
+      "assets/logo.png",
+      "assets/favicon.ico",
+      "config/app.config.json",
+      "config/theme.json"
+    ],
+    "directories": [
+      "assets",
+      "config"
+    ]
+  }
+}
